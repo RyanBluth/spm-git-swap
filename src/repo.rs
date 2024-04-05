@@ -77,6 +77,12 @@ impl PackageRepo {
 
 impl PackageRepo {
     fn clone(&mut self, pin: &v2::Pin) -> Result<(), PackageRepoError> {
+
+        if pin.kind != v2::Kind::RemoteSourceControl {
+            info!("Skipping {} as it is not a git repo", pin.identity);
+            return Ok(());
+        }
+
         let version = pin
             .state
             .version
