@@ -1,7 +1,7 @@
 use glob::glob;
 use log::info;
 
-use std::{collections::HashSet, path::Path};
+use std::{collections::{HashMap, HashSet}, path::Path};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,15 +23,15 @@ pub enum ResolvedError {
 }
 
 pub fn parse_all_recursive(path: &Path) -> Result<Vec<v2::Pin>, ResolvedError> {
-    let mut pins: HashSet<v2::Pin> = HashSet::new();
-    for entry in glob(&format!("{}/**/*.resolved", path.to_str().unwrap()))? {
+    let mut pins: HashMap<String, v2::Pin> = HashMap::new();
+    for entry in glob(&format!("{}/**/Package.resolved", path.to_str().unwrap()))? {
         let path = entry?;
         for pin in parse(&path)?.pins {
-            pins.insert(pin);
+            pins.insert(pin.location.clone(), pin);
         }
     }
 
-    Ok(pins.into_iter().collect())
+    Ok(pins.into_values().collect())
 }
 
 pub fn parse(path: &Path) -> Result<v2::Resolved, ResolvedError> {
@@ -75,7 +75,7 @@ pub mod v2 {
     use serde::{Deserialize, Serialize};
     use std::path::Path;
 
-    #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+    #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
     #[serde(rename_all = "camelCase")]
     pub enum Kind {
         RemoteSourceControl,
@@ -89,7 +89,7 @@ pub mod v2 {
         pub version: u8,
     }
 
-    #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+    #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
     pub struct Pin {
         pub identity: String,
         pub kind: Kind,
@@ -97,7 +97,7 @@ pub mod v2 {
         pub state: State,
     }
 
-    #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+    #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
     pub struct State {
         pub revision: String,
         pub version: Option<String>,

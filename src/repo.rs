@@ -1,6 +1,6 @@
 use std::{path, process::Command};
 
-use git2::{self, build::RepoBuilder, FetchOptions};
+use auth_git2::GitAuthenticator;
 use log::{info, warn};
 
 use thiserror::Error;
@@ -29,6 +29,7 @@ const CHECKOUTS_DIR: &str = "checkouts";
 
 pub struct PackageRepo {
     dir: path::PathBuf,
+    git: GitAuthenticator,
 }
 
 impl PackageRepo {
@@ -56,6 +57,11 @@ impl PackageRepo {
 
         Ok(Self {
             dir: repo_dir.to_path_buf(),
+            git: GitAuthenticator::default()
+                .try_cred_helper(true)
+                .add_default_username()
+                .try_ssh_agent(true)
+                .add_default_ssh_keys(),
         })
     }
 
@@ -64,10 +70,7 @@ impl PackageRepo {
         let pins = parse_all_recursive(path)?;
 
         for pin in pins {
-            info!(
-                "Cloning: {:?} at revision {}",
-                pin.identity, pin.state.revision
-            );
+            info!("Cloning: {:?}", pin.identity);
             self.clone(&pin)?;
         }
 
@@ -77,10 +80,19 @@ impl PackageRepo {
 
 impl PackageRepo {
     fn clone(&mut self, pin: &v2::Pin) -> Result<(), PackageRepoError> {
-
         if pin.kind != v2::Kind::RemoteSourceControl {
             info!("Skipping {} as it is not a git repo", pin.identity);
             return Ok(());
+        }
+
+        let mut repo_url = pin.location.clone();
+
+        if pin.location.starts_with("https://github.com/") {
+            let parts: Vec<&str> = pin.location.split('/').collect();
+            let repo_name = parts[parts.len() - 1];
+            let user_name = parts[parts.len() - 2];
+            repo_url = format!("git@github.com:{}/{}", user_name, repo_name);
+            info!("Converting https to ssh for {}. Converted to {}", pin.location, repo_url);
         }
 
         let version = pin
@@ -92,32 +104,20 @@ impl PackageRepo {
         let path = self.checkouts_dir().join(pin.identity.clone());
 
         if path.exists() {
-            info!(
-                "Revsion {} for {} already exists, fetching",
-                pin.state.revision, pin.identity
-            );
+            info!("{} already exists, fetching", pin.identity);
 
             let repo = git2::Repository::open(&path)?;
-
-            let mut fetch_options = FetchOptions::new();
-            fetch_options.download_tags(git2::AutotagOption::All);
-
             let mut remote = repo.find_remote("origin")?;
-            remote.fetch(
-                &["refs/heads/*:refs/heads/*"],
-                Some(&mut fetch_options),
-                None,
-            )?;
+
+            self.git
+                .fetch(&repo, &mut remote, &["refs/heads/*:refs/heads/*"], None)?;
 
             return Ok(());
         }
 
-        RepoBuilder::new().clone(&pin.location, &path)?;
+        self.git.clone_repo(&repo_url, &path)?;
 
-        info!(
-            "Cloned {} at revision {}, version {}",
-            pin.identity, pin.state.revision, version
-        );
+        info!("Cloned {} , version {}", pin.identity, version);
 
         info!(
             "Setting global git proxy for {} to {}",
