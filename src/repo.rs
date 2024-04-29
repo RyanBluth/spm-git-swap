@@ -1,6 +1,7 @@
 use std::{path, process::Command};
 
 use auth_git2::GitAuthenticator;
+use git2::Config;
 use log::{info, warn};
 
 use thiserror::Error;
@@ -65,13 +66,29 @@ impl PackageRepo {
         })
     }
 
+    pub fn wipe(&self) -> Result<(), PackageRepoError> {
+        info!(
+            "Wiping checkouts directory: {}",
+            self.checkouts_dir().display()
+        );
+        std::fs::remove_dir_all(self.checkouts_dir())?;
+        Ok(())
+    }
+
     pub fn install(&mut self, path: &path::Path) -> Result<(), PackageRepoError> {
         info!("Scanning directory: {:?} for Package.resovled", path);
         let pins = parse_all_recursive(path)?;
 
         for pin in pins {
             info!("Cloning: {:?}", pin.identity);
-            self.clone(&pin)?;
+            if let Err(error) = self.clone(&pin) {
+                log::error!(
+                    "Error cloning {} at: {}. {}",
+                    pin.identity,
+                    pin.location,
+                    error,
+                );
+            }
         }
 
         Ok(())
@@ -92,7 +109,10 @@ impl PackageRepo {
             let repo_name = parts[parts.len() - 1];
             let user_name = parts[parts.len() - 2];
             repo_url = format!("git@github.com:{}/{}", user_name, repo_name);
-            info!("Converting https to ssh for {}. Converted to {}", pin.location, repo_url);
+            info!(
+                "Converting https to ssh for {}. Converted to {}",
+                pin.location, repo_url
+            );
         }
 
         let version = pin
@@ -102,8 +122,13 @@ impl PackageRepo {
             .unwrap_or_else(|| String::from("NO_VERSION"));
 
         let path = self.checkouts_dir().join(pin.identity.clone());
+        let git_path = path.join(".git");
 
-        if path.exists() {
+      
+
+        Self::remove_global_git_proxy(&path.display().to_string())?;
+
+        if path.exists() && git_path.exists() {
             info!("{} already exists, fetching", pin.identity);
 
             let repo = git2::Repository::open(&path)?;
@@ -112,19 +137,37 @@ impl PackageRepo {
             self.git
                 .fetch(&repo, &mut remote, &["refs/heads/*:refs/heads/*"], None)?;
 
+            Self::set_global_git_proxy(&pin.location, &path.display().to_string())?;
+
             return Ok(());
+        } else {
+            info!("Cloning {} at {}", pin.identity, pin.location);
         }
 
-        self.git.clone_repo(&repo_url, &path)?;
+        self.git.clone_repo(&repo_url, &path).or_else(|err| {
+            if path.exists() {
+                info!("Removing {} due to error cloning", path.display());
+                if let Err(deleter_error) = std::fs::remove_dir_all(&path) {
+                    log::error!(
+                        "Error deleting {} after error cloning: {}. You may need to manually delete this directory.",
+                        path.display(),
+                        deleter_error
+                    );
+                }
+            }
+            Err(err)
+        })?;
 
-        info!("Cloned {} , version {}", pin.identity, version);
+        info!(
+            "Cloned {} , version {} at revision: {}",
+            pin.identity, version, pin.state.revision
+        );
 
         info!(
             "Setting global git proxy for {} to {}",
             pin.location,
             &path.display()
         );
-
         Self::set_global_git_proxy(&pin.location, &path.display().to_string())?;
 
         Ok(())
@@ -134,19 +177,25 @@ impl PackageRepo {
         self.dir.join(path::Path::new(CHECKOUTS_DIR))
     }
 
-    fn set_global_git_proxy(
-        repo_url: &str,
-        proxy_script_path: &str,
-    ) -> Result<(), PackageRepoError> {
-        let config_value = format!("url.{}.insteadOf", proxy_script_path);
+    fn set_global_git_proxy(repo_url: &str, proxy_path: &str) -> Result<(), PackageRepoError> {
 
-        let output = Command::new("git")
-            .args(&["config", "--global", "--add", &config_value, repo_url])
-            .output()?;
+        let config_value = format!("url.{}.insteadOf", proxy_path);
+        
+        let mut config =  Config::open_default()?;
 
-        if !output.status.success() {
-            let error_message = String::from_utf8_lossy(&output.stderr);
-            return Err(PackageRepoError::GitConfig(error_message.to_string()));
+        config.set_str(&config_value, repo_url)?;
+
+        Ok(())
+    }
+
+    fn remove_global_git_proxy(proxy_path: &str) -> Result<(), PackageRepoError> {
+       
+        let config_value = format!("url.{}.insteadOf", proxy_path);
+        
+        let mut config =  Config::open_default()?;
+
+        if config.get_entry(&config_value).is_ok() {
+            config.remove(&config_value)?;
         }
 
         Ok(())

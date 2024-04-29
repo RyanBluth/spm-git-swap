@@ -8,10 +8,18 @@ mod resolved;
 /// A utility to clone repositories from .resolved files and update Git config.
 #[derive(StructOpt, Debug)]
 #[structopt(name = "spm-git-swap")]
-struct Opt {
-    /// The path to scan for .resolved files.
-    #[structopt(parse(from_os_str))]
-    path: std::path::PathBuf,
+enum Opt {
+
+    /// Install packages from .resolved files.
+    Install {
+         /// The path to scan for .resolved files.
+        #[structopt(parse(from_os_str))]
+        path: std::path::PathBuf,
+    },
+
+    /// Wipe cached repositories.
+    Wipe
+   
 }
 
 fn main() {
@@ -27,7 +35,16 @@ fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::new().init().unwrap();
 
     let mut package_repo = PackageRepo::new()?;
-    package_repo.install(&opt.path)?;
+    
+    match opt {
+        Opt::Install { path } => {
+            package_repo.install(&path)?;
+        
+        },
+        Opt::Wipe => {
+            package_repo.wipe()?;
+        },
+    }
 
     Ok(())
 }
