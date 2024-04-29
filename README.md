@@ -5,7 +5,7 @@ Tired of waiting and waiting for XCode to resolve SPM packages? Then you've come
 ## How to Use
 
 1. Install Rust - https://rustup.rs/
-2. Run the project and point it to your iOS project folder `cargo build --release my_ios_project_folder`
+2. Run the project and point it to your iOS project folder `cargo run --release my_ios_project_folder`
 3. Wait a while as the repositories are cloned
 4. SPM should now use the local versions
 
