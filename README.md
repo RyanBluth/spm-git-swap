@@ -5,10 +5,11 @@ Tired of waiting and waiting for XCode to resolve SPM packages? Then you've come
 ## How to Use
 
 1. Install Rust - https://rustup.rs/
-2. Run the project and point it to your iOS project folder `cargo run --release my_ios_project_folder`
+2. Run the project and point it to your iOS project folder `cargo run --release install my_ios_project_folder`
 3. Wait a while as the repositories are cloned
 4. SPM should now use the local versions
 
 ### Things to Note
 
-SPM-Git-Swap will fetch if the repo is already cloned. If you alter your SPM dependencies you will need to run the script again to get the latest changes from each repo.
+- SPM-Git-Swap will fetch if the repo is already cloned. If you alter your SPM dependencies you will need to run the script again to get the latest changes from each repo.
+- Currently, there is no handling for weird states that may occur from killing the install half way through. You can run `cargo run --release wipe` to wipe your caches. This will not update your git config so you will need to either clear that manually `git config --edit --global` or run `cargo run --release install my_ios_project_folder` again.
